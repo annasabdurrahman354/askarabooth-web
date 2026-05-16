@@ -8,3 +8,5 @@ coverage/
 !.env.example
 server/node_modules/
 server/dist/
+server
+android
