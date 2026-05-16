@@ -19,6 +19,7 @@ const TemplatesPage = lazy(() => import("./pages/dashboard/TemplatesPage"));
 const StickersPage = lazy(() => import("./pages/dashboard/StickersPage"));
 const TemplateEditor = lazy(() => import("./pages/TemplateEditor"));
 const BoothSession = lazy(() => import("./pages/BoothSession"));
+const RenderPage = lazy(() => import("./pages/RenderPage"));
 const ShareGallery = lazy(() => import("./pages/ShareGallery"));
 
 function ProtectedRoute({
@@ -115,6 +116,8 @@ export default function App() {
         />
 
         <Route path="/booth/:boothId/template/:templateId" element={<BoothSession />} />
+
+        <Route path="/render/:sessionId" element={<RenderPage />} />
 
         <Route path="/share/:token" element={<ShareGallery />} />
       </Routes>

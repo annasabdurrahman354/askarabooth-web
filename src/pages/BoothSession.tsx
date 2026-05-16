@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { motion } from "motion/react";
-import html2canvas from "html2canvas";
 import QRCode from "react-qr-code";
 import { useSessionStore } from "../store/useSessionStore";
 import { RotateCcw, Camera, Check } from "lucide-react";
-import { TemplateRenderer, renderTemplateHTML, TemplateConfig } from "../lib/templateRenderer";
+import { TemplateRenderer, captureTemplate } from "../lib/templateRenderer";
 
 export default function BoothSession() {
   const { boothId, templateId } = useParams();
@@ -105,105 +104,7 @@ export default function BoothSession() {
     if (!containerEl || !sessionData?.id || !boothId) return;
 
     try {
-      await document.fonts.ready;
-
-      const canvas_converter = document.createElement("canvas");
-      canvas_converter.width = 1;
-      canvas_converter.height = 1;
-      const ctx_converter = canvas_converter.getContext("2d");
-      const colorCache = new Map<string, string>();
-
-      const resolveOklchValue = (value: string): string => {
-        if (!value.includes("oklch")) return value;
-        return value.replace(/oklch\([^)]*\)/g, (match) => {
-          if (colorCache.has(match)) return colorCache.get(match)!;
-          if (!ctx_converter) return match;
-          try {
-            ctx_converter.fillStyle = match;
-            ctx_converter.fillRect(0, 0, 1, 1);
-            const data = ctx_converter.getImageData(0, 0, 1, 1).data;
-            const resolved = `rgba(${data[0]}, ${data[1]}, ${data[2]}, ${data[3] / 255})`;
-            colorCache.set(match, resolved);
-            return resolved;
-          } catch (e) {
-            return match;
-          }
-        });
-      };
-
-      const container = containerEl;
-
-      const canvas = await html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        onclone: (doc, clonedContainer) => {
-          const start = performance.now();
-
-          const processRules = (rules: CSSRuleList) => {
-            for (let ri = 0; ri < rules.length; ri++) {
-              try {
-                const rule = rules[ri];
-                if ((rule as any).style) {
-                  const style = (rule as any).style;
-                  for (let pi = 0; pi < style.length; pi++) {
-                    const prop = style[pi];
-                    const val = style.getPropertyValue(prop);
-                    if (val && val.includes("oklch")) {
-                      style.setProperty(prop, resolveOklchValue(val));
-                    }
-                  }
-                } else if ("cssRules" in rule) {
-                  processRules((rule as any).cssRules);
-                }
-              } catch (e) {}
-            }
-          };
-
-          for (let si = 0; si < doc.styleSheets.length; si++) {
-            try {
-              const sheet = doc.styleSheets[si];
-              const rules = sheet.cssRules || sheet.rules;
-              if (rules) processRules(rules);
-            } catch (e) {}
-          }
-
-          doc.querySelectorAll("*").forEach((el) => {
-            const htmlEl = el as HTMLElement;
-            if (htmlEl.style && htmlEl.style.length > 0) {
-              for (let pi = 0; pi < htmlEl.style.length; pi++) {
-                const prop = htmlEl.style[pi];
-                const val = htmlEl.style.getPropertyValue(prop);
-                if (val && val.includes("oklch")) {
-                  htmlEl.style.setProperty(prop, resolveOklchValue(val));
-                }
-              }
-            }
-          });
-
-          const originalElements = container.querySelectorAll("[id^='el-'], .photo-slot");
-          const clonedElements = clonedContainer.querySelectorAll("[id^='el-'], .photo-slot");
-          originalElements.forEach((orig, i) => {
-            const origEl = orig as HTMLElement;
-            const cloneEl = clonedElements[i] as HTMLElement;
-            if (!cloneEl) return;
-            const computed = window.getComputedStyle(origEl);
-            const hasNoExplicitWidth = !origEl.style.width || origEl.style.width === "auto";
-            if (hasNoExplicitWidth) {
-              cloneEl.style.width = computed.width;
-            }
-            const hasNoExplicitHeight = !origEl.style.height || origEl.style.height === "auto";
-            if (hasNoExplicitHeight) {
-              cloneEl.style.height = computed.height;
-            }
-          });
-
-          console.log(`Oklch + dimension fix took ${Math.round(performance.now() - start)}ms`);
-          return doc;
-        },
-      });
-      console.log("Html2canvas finished.");
+      const canvas = await captureTemplate(containerEl);
       const finalImage = canvas.toDataURL("image/jpeg", 0.9);
       setState("rendering");
       await renderFinal(finalImage, boothId);

@@ -1,4 +1,5 @@
 import React from "react";
+import html2canvas from "html2canvas";
 import { Element } from "../store/useEditorStore";
 
 export interface TemplateConfig {
@@ -351,4 +352,120 @@ export function injectCapturesIntoHTML(
   }
 
   return div.innerHTML;
+}
+
+export function createOklchResolver(): (value: string) => string {
+  const cv = document.createElement("canvas");
+  cv.width = 1;
+  cv.height = 1;
+  const ctx = cv.getContext("2d")!;
+  const cache = new Map<string, string>();
+
+  return (value: string): string => {
+    if (!value.includes("oklch")) return value;
+    return value.replace(/oklch\([^)]*\)/g, (match) => {
+      if (cache.has(match)) return cache.get(match)!;
+      try {
+        ctx.fillStyle = match;
+        ctx.fillRect(0, 0, 1, 1);
+        const d = ctx.getImageData(0, 0, 1, 1).data;
+        const resolved = `rgba(${d[0]},${d[1]},${d[2]},${d[3] / 255})`;
+        cache.set(match, resolved);
+        return resolved;
+      } catch {
+        return match;
+      }
+    });
+  };
+}
+
+export function applyOklchAndDimensionFix(
+  doc: Document,
+  sourceEl: HTMLElement,
+  resolveOklch: (v: string) => string
+): void {
+  const processRules = (rules: CSSRuleList) => {
+    for (let i = 0; i < rules.length; i++) {
+      try {
+        const r = rules[i] as any;
+        if (r.style) {
+          for (let j = 0; j < r.style.length; j++) {
+            const p = r.style[j];
+            const val = r.style.getPropertyValue(p);
+            if (val?.includes("oklch")) r.style.setProperty(p, resolveOklch(val));
+          }
+        } else if (r.cssRules) processRules(r.cssRules);
+      } catch {}
+    }
+  };
+
+  for (let i = 0; i < doc.styleSheets.length; i++) {
+    try {
+      const s = doc.styleSheets[i];
+      if (s.cssRules) processRules(s.cssRules);
+    } catch {}
+  }
+
+  doc.querySelectorAll("*").forEach((e) => {
+    const h = e as HTMLElement;
+    for (let j = 0; j < h.style.length; j++) {
+      const p = h.style[j];
+      const val = h.style.getPropertyValue(p);
+      if (val?.includes("oklch")) h.style.setProperty(p, resolveOklch(val));
+    }
+  });
+
+  const origEls = sourceEl.querySelectorAll("[id^='el-'], .photo-slot");
+  const clonedEls = doc.querySelectorAll("[id^='el-'], .photo-slot");
+  origEls.forEach((o, i) => {
+    const oEl = o as HTMLElement;
+    const cEl = clonedEls[i] as HTMLElement;
+    if (!cEl) return;
+    const comp = window.getComputedStyle(oEl);
+    if (!oEl.style.width || oEl.style.width === "auto") cEl.style.width = comp.width;
+    if (!oEl.style.height || oEl.style.height === "auto") cEl.style.height = comp.height;
+  });
+}
+
+export interface CaptureOptions {
+  scale?: number;
+  format?: string;
+  quality?: number;
+}
+
+export async function captureTemplate(
+  element: HTMLElement,
+  options?: CaptureOptions
+): Promise<HTMLCanvasElement> {
+  await document.fonts.ready;
+
+  const resolveOklch = createOklchResolver();
+  const scale = options?.scale ?? 2;
+
+  return html2canvas(element, {
+    scale,
+    useCORS: true,
+    backgroundColor: "#ffffff",
+    logging: false,
+    onclone: (doc, cloned) => {
+      applyOklchAndDimensionFix(doc, element, resolveOklch);
+    },
+  });
+}
+
+export async function captureTemplateAsBlob(
+  element: HTMLElement,
+  options?: CaptureOptions
+): Promise<Blob> {
+  const canvas = await captureTemplate(element, options);
+  const format = options?.format ?? "image/jpeg";
+  const quality = options?.quality ?? 0.9;
+
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error("toBlob failed"))),
+      format,
+      quality
+    );
+  });
 }
