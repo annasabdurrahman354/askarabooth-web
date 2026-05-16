@@ -4,21 +4,22 @@
  */
 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import React, { useEffect } from "react";
+import React, { useEffect, lazy, Suspense } from "react";
 import useAuthStore from "./store/useAuthStore";
 import Login from "./pages/Login";
 import DashboardLayout from "./components/DashboardLayout";
-import OverviewPage from "./pages/dashboard/OverviewPage";
-import TenantsPage from "./pages/dashboard/TenantsPage";
-import UsersPage from "./pages/dashboard/UsersPage";
-import BoothsPage from "./pages/dashboard/BoothsPage";
-import SessionsPage from "./pages/dashboard/SessionsPage";
-import CapturesPage from "./pages/dashboard/CapturesPage";
-import TemplatesPage from "./pages/dashboard/TemplatesPage";
-import StickersPage from "./pages/dashboard/StickersPage";
-import TemplateEditor from "./pages/TemplateEditor";
-import BoothSession from "./pages/BoothSession";
-import ShareGallery from "./pages/ShareGallery";
+
+const OverviewPage = lazy(() => import("./pages/dashboard/OverviewPage"));
+const TenantsPage = lazy(() => import("./pages/dashboard/TenantsPage"));
+const UsersPage = lazy(() => import("./pages/dashboard/UsersPage"));
+const BoothsPage = lazy(() => import("./pages/dashboard/BoothsPage"));
+const SessionsPage = lazy(() => import("./pages/dashboard/SessionsPage"));
+const CapturesPage = lazy(() => import("./pages/dashboard/CapturesPage"));
+const TemplatesPage = lazy(() => import("./pages/dashboard/TemplatesPage"));
+const StickersPage = lazy(() => import("./pages/dashboard/StickersPage"));
+const TemplateEditor = lazy(() => import("./pages/TemplateEditor"));
+const BoothSession = lazy(() => import("./pages/BoothSession"));
+const ShareGallery = lazy(() => import("./pages/ShareGallery"));
 
 function ProtectedRoute({
   children,
@@ -66,7 +67,16 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <Routes>
+      <Suspense
+        fallback={
+          <div className="h-screen flex items-center justify-center bg-slate-50 font-sans">
+            <div className="text-slate-400 font-black uppercase tracking-widest text-sm animate-pulse">
+              Loading...
+            </div>
+          </div>
+        }
+      >
+        <Routes>
         <Route path="/" element={<RootRedirect />} />
         <Route path="/login" element={<Login />} />
 
@@ -108,6 +118,7 @@ export default function App() {
 
         <Route path="/share/:token" element={<ShareGallery />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
