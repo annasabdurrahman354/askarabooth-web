@@ -34,28 +34,22 @@ async function resolveUserProfile(authId: string, email: string): Promise<AuthUs
     };
   }
 
-  // Auto-create profile on first login
-  const isSuper = email.toLowerCase().includes('superadmin');
-
-  let tenantId: string | null = null;
-  if (!isSuper) {
-    const tenantName = `${email.split('@')[0]}'s Photobooth`;
-    const { data: tenant, error: tErr } = await supabase
-      .from('tenants')
-      .insert({ name: tenantName, plan: 'free', status: 'active' })
-      .select()
-      .single();
-    if (tErr) throw new Error(tErr.message);
-    tenantId = tenant.id;
-  }
+  // Auto-create profile on first login (if user exists in auth but not profiles)
+  const tenantName = `${email.split('@')[0]}'s Photobooth`;
+  const { data: tenant, error: tErr } = await supabase
+    .from('tenants')
+    .insert({ name: tenantName, plan: 'free', status: 'active' })
+    .select()
+    .single();
+  if (tErr) throw new Error(tErr.message);
 
   const { data: newProfile, error: uErr } = await supabase
     .from('profiles')
     .insert({
       id: authId,
       email,
-      role: isSuper ? 'superadmin' : 'owner',
-      tenant_id: tenantId,
+      role: 'owner',
+      tenant_id: tenant.id,
     })
     .select()
     .single();
@@ -75,37 +69,15 @@ const useAuthStore = create<AuthState>((set) => ({
   loading: true,
 
   login: async (email, password) => {
-    // Try sign in first
-    let { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    // If user doesn't exist, sign them up
-    if (signInErr && signInErr.message.toLowerCase().includes('invalid')) {
-      const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
-        email,
-        password,
-      });
-      if (signUpErr) throw new Error(signUpErr.message);
-      signInData = signUpData;
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error('Login failed. Check credentials.');
 
-      // After signup we may need to sign in immediately
-      if (!signInData?.session) {
-        const { data: reSigned, error: reErr } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        if (reErr) throw new Error(reErr.message);
-        signInData = reSigned;
-      }
-    } else if (signInErr) {
-      throw new Error(signInErr.message);
-    }
-
-    if (!signInData?.user) throw new Error('Login failed. Check credentials.');
-
-    const userProfile = await resolveUserProfile(signInData.user.id, email);
+    const userProfile = await resolveUserProfile(data.user.id, email);
     set({ user: userProfile });
   },
 

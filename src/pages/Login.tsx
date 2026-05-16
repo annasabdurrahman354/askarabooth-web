@@ -4,8 +4,8 @@ import useAuthStore from "../store/useAuthStore";
 import { Camera, Lock, Mail } from "lucide-react";
 
 export default function Login() {
-  const [email, setEmail] = useState("superadmin@example.com");
-  const [password, setPassword] = useState("password123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const { login, user, loading } = useAuthStore();
@@ -94,14 +94,6 @@ export default function Login() {
             </div>
           </div>
 
-          <div className="bg-yellow-50 border-l-4 border-yellow-400 px-4 py-3 rounded">
-            <p className="text-xs text-slate-600 font-bold">
-              <span className="font-black text-slate-950">Tip:</span> Use{" "}
-              <code className="bg-yellow-100 px-1 rounded text-xs">superadmin@...</code> for superadmin
-              access. New users are auto-registered on first login. Default password:{" "}
-              <code className="bg-yellow-100 px-1 rounded text-xs">password123</code>
-            </p>
-          </div>
 
           <button
             id="login-submit"
