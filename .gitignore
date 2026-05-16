@@ -6,8 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
-server/node_modules/
-server/dist/
-server
 server/
 android
