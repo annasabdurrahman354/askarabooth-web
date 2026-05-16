@@ -9,4 +9,5 @@ coverage/
 server/node_modules/
 server/dist/
 server
+server/
 android
