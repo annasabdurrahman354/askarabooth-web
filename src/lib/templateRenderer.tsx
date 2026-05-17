@@ -449,6 +449,13 @@ export async function captureTemplate(
     logging: false,
     onclone: (doc, cloned) => {
       applyOklchAndDimensionFix(doc, element, resolveOklch);
+
+      // Strip UI-only decorations (border, shadow, outline) from the root element
+      cloned.style.border = "none";
+      cloned.style.boxShadow = "none";
+      cloned.style.outline = "none";
+      cloned.style.transform = "none";
+      cloned.style.borderRadius = "0";
     },
   });
 }
