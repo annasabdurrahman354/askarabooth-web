@@ -29,11 +29,12 @@ drop function if exists public.get_my_tenant_id() cascade;
 
 -- 1. TENANTS
 create table public.tenants (
-  id         uuid        default uuid_generate_v4() primary key,
-  name       text        not null,
-  plan       text        not null default 'free',   -- 'free' | 'pro' | 'enterprise'
-  status     text        not null default 'active', -- 'active' | 'suspended'
-  created_at timestamptz default timezone('utc', now()) not null
+  id            uuid        default uuid_generate_v4() primary key,
+  name          text        not null,
+  plan          text        not null default 'free',   -- 'free' | 'pro' | 'enterprise'
+  status        text        not null default 'active', -- 'active' | 'suspended'
+  referral_code text        unique,
+  created_at    timestamptz default timezone('utc', now()) not null
 );
 
 alter table public.tenants enable row level security;
@@ -42,7 +43,7 @@ alter table public.tenants enable row level security;
 create table public.profiles (
   id         uuid        primary key references auth.users(id) on delete cascade,
   email      text        not null,
-  role       text        not null default 'owner', -- 'superadmin' | 'owner'
+  role       text        not null default 'owner', -- 'superadmin' | 'owner' | 'admin'
   tenant_id  uuid        references public.tenants(id) on delete set null,
   created_at timestamptz default timezone('utc', now()) not null
 );
@@ -229,6 +230,11 @@ create policy "Public can read any session"
   on public.sessions for select
   using (true);
 
+create policy "Anonymous can update session final image"
+  on public.sessions for update
+  using (true)
+  with check (true);
+
 -- Captures
 create policy "Tenant users can view own captures"
   on public.captures for select
@@ -308,6 +314,10 @@ create policy "Authenticated upload renders"
   on storage.objects for insert
   with check (bucket_id = 'renders' and auth.role() = 'authenticated');
 
+create policy "Anonymous upload renders"
+  on storage.objects for insert
+  with check (bucket_id = 'renders');
+
 create policy "Authenticated upload templates"
   on storage.objects for insert
   with check (bucket_id = 'templates' and auth.role() = 'authenticated');
@@ -365,3 +375,165 @@ begin
   values (v_user_id, v_email, 'superadmin', null, now())
   on conflict (id) do nothing;
 end $$;
+
+-- 1. Sessions: make booth_id nullable, change FK to ON DELETE SET NULL
+ALTER TABLE public.sessions ALTER COLUMN booth_id DROP NOT NULL;
+
+-- Drop and recreate the foreign key constraint
+ALTER TABLE public.sessions DROP CONSTRAINT IF EXISTS sessions_booth_id_fkey;
+ALTER TABLE public.sessions ADD CONSTRAINT sessions_booth_id_fkey
+  FOREIGN KEY (booth_id) REFERENCES public.booths(id) ON DELETE SET NULL;
+
+-- 2. Captures: make session_id nullable, change FK to ON DELETE SET NULL
+ALTER TABLE public.captures ALTER COLUMN session_id DROP NOT NULL;
+
+ALTER TABLE public.captures DROP CONSTRAINT IF EXISTS captures_session_id_fkey;
+ALTER TABLE public.captures ADD CONSTRAINT captures_session_id_fkey
+  FOREIGN KEY (session_id) REFERENCES public.sessions(id) ON DELETE SET NULL;
+
+
+-- =============================================================================
+-- Migration: Add Multi-Tenant Support to Stickers
+-- Run this script in the Supabase SQL Editor
+-- =============================================================================
+
+-- 1. Add the tenant_id column to the stickers table
+ALTER TABLE public.stickers 
+ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES public.tenants(id) ON DELETE CASCADE;
+
+-- Note: Existing stickers will have tenant_id = NULL, making them "Global" stickers.
+
+-- 2. Drop existing RLS policies for stickers
+DROP POLICY IF EXISTS "Anyone can read stickers" ON public.stickers;
+DROP POLICY IF EXISTS "Superadmins can manage stickers" ON public.stickers;
+DROP POLICY IF EXISTS "Anyone can read global or their own tenant stickers" ON public.stickers;
+DROP POLICY IF EXISTS "Tenant users can manage own stickers" ON public.stickers;
+DROP POLICY IF EXISTS "Superadmins can manage all stickers" ON public.stickers;
+
+-- 3. Create new RLS policies for stickers
+CREATE POLICY "Anyone can read global or their own tenant stickers"
+  ON public.stickers FOR SELECT
+  USING (
+    tenant_id IS NULL
+    OR tenant_id = public.get_my_tenant_id()
+    OR public.is_superadmin()
+  );
+
+CREATE POLICY "Tenant users can manage own stickers"
+  ON public.stickers FOR ALL
+  USING (tenant_id = public.get_my_tenant_id())
+  WITH CHECK (tenant_id = public.get_my_tenant_id());
+
+CREATE POLICY "Superadmins can manage all stickers"
+  ON public.stickers FOR ALL
+  USING (public.is_superadmin())
+  WITH CHECK (public.is_superadmin());
+
+-- 4. Create storage bucket for stickers
+INSERT INTO storage.buckets (id, name, public) 
+VALUES ('stickers', 'stickers', true)
+ON CONFLICT DO NOTHING;
+
+-- 5. RLS policies for stickers storage (drop first since they may already exist)
+DROP POLICY IF EXISTS "Public read stickers" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated upload stickers" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated delete stickers" ON storage.objects;
+
+CREATE POLICY "Public read stickers" 
+  ON storage.objects FOR SELECT 
+  USING (bucket_id = 'stickers');
+
+CREATE POLICY "Authenticated upload stickers"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'stickers' AND auth.role() = 'authenticated');
+
+CREATE POLICY "Authenticated delete stickers"
+  ON storage.objects FOR DELETE
+  USING (bucket_id = 'stickers' AND auth.role() = 'authenticated');
+
+DROP POLICY IF EXISTS "Tenant users can manage own booths" ON public.booths;
+DROP POLICY IF EXISTS "Superadmins can manage all booths" ON public.booths;
+
+CREATE POLICY "Tenant users can manage own booths"
+  ON public.booths FOR ALL
+  USING (tenant_id = public.get_my_tenant_id())
+  WITH CHECK (tenant_id = public.get_my_tenant_id());
+
+CREATE POLICY "Superadmins can manage all booths"
+  ON public.booths FOR ALL
+  USING (public.is_superadmin())
+  WITH CHECK (public.is_superadmin());
+
+-- Templates
+DROP POLICY IF EXISTS "Tenant users can manage own templates" ON public.templates;
+DROP POLICY IF EXISTS "Superadmins can manage all templates" ON public.templates;
+
+CREATE POLICY "Tenant users can manage own templates"
+  ON public.templates FOR ALL
+  USING (tenant_id = public.get_my_tenant_id())
+  WITH CHECK (tenant_id = public.get_my_tenant_id());
+
+CREATE POLICY "Superadmins can manage all templates"
+  ON public.templates FOR ALL
+  USING (public.is_superadmin())
+  WITH CHECK (public.is_superadmin());
+
+-- Sessions
+DROP POLICY IF EXISTS "Tenant users can manage own sessions" ON public.sessions;
+
+CREATE POLICY "Tenant users can manage own sessions"
+  ON public.sessions FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.booths
+      WHERE id = booth_id AND tenant_id = public.get_my_tenant_id()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.booths
+      WHERE id = booth_id AND tenant_id = public.get_my_tenant_id()
+    )
+  );
+
+-- Captures
+DROP POLICY IF EXISTS "Tenant users can manage own captures" ON public.captures;
+
+CREATE POLICY "Tenant users can manage own captures"
+  ON public.captures FOR ALL
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.sessions s
+      JOIN public.booths b ON b.id = s.booth_id
+      WHERE s.id = session_id AND b.tenant_id = public.get_my_tenant_id()
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.sessions s
+      JOIN public.booths b ON b.id = s.booth_id
+      WHERE s.id = session_id AND b.tenant_id = public.get_my_tenant_id()
+    )
+  );
+
+-- Make existing helper functions SECURITY DEFINER so they bypass RLS
+CREATE OR REPLACE FUNCTION is_superadmin()
+RETURNS BOOLEAN AS $$
+  SELECT EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'superadmin');
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION get_my_tenant_id()
+RETURNS UUID AS $$
+  SELECT tenant_id FROM profiles WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- These two were already created in fix-rls.sql, just ensure they're SECURITY DEFINER
+CREATE OR REPLACE FUNCTION get_user_tenant_id()
+RETURNS UUID AS $$
+  SELECT tenant_id FROM profiles WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+CREATE OR REPLACE FUNCTION get_user_role()
+RETURNS TEXT AS $$
+  SELECT role FROM profiles WHERE id = auth.uid();
+$$ LANGUAGE sql SECURITY DEFINER STABLE;

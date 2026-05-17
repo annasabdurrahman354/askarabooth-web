@@ -6,6 +6,7 @@ export interface Tenant {
   name: string;
   plan: string;
   status: string;
+  referral_code: string | null;
   created_at: string;
 }
 
@@ -15,7 +16,7 @@ export interface Profile {
   role: string;
   tenant_id: string | null;
   created_at: string;
-  tenants?: { name: string };
+  tenants?: { name: string; referral_code?: string };
 }
 
 export interface Booth {
@@ -135,7 +136,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       const isSuper = role === "superadmin";
 
       let tenantsQ = supabase.from("tenants").select("*").order("created_at", { ascending: false });
-      let profilesQ = supabase.from("profiles").select("*, tenants(name)").order("created_at", { ascending: false });
+      let profilesQ = supabase.from("profiles").select("*, tenants(name, referral_code)").order("created_at", { ascending: false });
       let boothsQ = supabase.from("booths").select("*, tenants(name)").order("created_at", { ascending: false });
       let sessionsQ = supabase.from("sessions").select("*, booths(name, tenant_id, tenants(name)), templates(name)").order("created_at", { ascending: false });
       let capturesQ = supabase.from("captures").select("*, sessions(booths(name, tenant_id))").order("created_at", { ascending: false });
