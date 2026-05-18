@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { motion } from "motion/react";
 import QRCode from "react-qr-code";
 import { useSessionStore } from "../store/useSessionStore";
-import { RotateCcw, Camera, Check } from "lucide-react";
+import { RotateCcw, Camera, Check, SwitchCamera } from "lucide-react";
 import { TemplateRenderer, captureTemplate } from "../lib/templateRenderer";
 
 export default function BoothSession() {
@@ -13,6 +13,8 @@ export default function BoothSession() {
   const streamRef = useRef<MediaStream | null>(null);
   const [flash, setFlash] = useState(false);
   const [retakeSlot, setRetakeSlot] = useState<number | null>(null);
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
 
   const {
     template,
@@ -36,16 +38,35 @@ export default function BoothSession() {
   }, [boothId, templateId, initializeSession]);
 
   // Start camera and keep the stream
-  useEffect(() => {
-    if (navigator.mediaDevices?.getUserMedia) {
-      navigator.mediaDevices
-        .getUserMedia({ video: { width: 1280, height: 720 } })
-        .then((stream) => {
-          streamRef.current = stream;
-          attachStream();
-        })
-        .catch((err) => console.error("Camera access denied", err));
+  const startCamera = async (deviceId?: string) => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
     }
+    try {
+      const constraints: MediaStreamConstraints = {
+        video: deviceId
+          ? { deviceId: { exact: deviceId }, width: 1280, height: 720 }
+          : { width: 1280, height: 720 },
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      streamRef.current = stream;
+      attachStream();
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter((d) => d.kind === "videoinput");
+      setVideoDevices(videoInputs);
+
+      const activeTrack = stream.getVideoTracks()[0];
+      if (activeTrack) {
+        setSelectedDeviceId(activeTrack.getSettings().deviceId || "");
+      }
+    } catch (err) {
+      console.error("Camera access denied", err);
+    }
+  };
+
+  useEffect(() => {
+    startCamera();
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
@@ -144,6 +165,22 @@ export default function BoothSession() {
             />
           </div>
           <div className="w-[45%] shrink-0 flex flex-col items-center justify-center gap-6 pr-8">
+            {videoDevices.length > 1 && (
+              <div className="flex items-center gap-3">
+                <SwitchCamera size={16} className="text-slate-400" />
+                <select
+                  value={selectedDeviceId}
+                  onChange={(e) => startCamera(e.target.value)}
+                  className="bg-white text-slate-950 font-black text-[10px] uppercase tracking-widest px-3 py-2 border-2 border-slate-950 rounded shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] focus:outline-none focus:translate-y-[1px] focus:translate-x-[1px] focus:shadow-[1px_1px_0px_0px_rgba(0,0,0,1)] transition-all cursor-pointer"
+                >
+                  {videoDevices.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label || `Camera ${d.deviceId.slice(0, 4)}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="rounded-2xl border-4 border-slate-950 shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] overflow-hidden bg-slate-800" style={{ width: "min(100%, 480px)", aspectRatio: "4/3" }}>
               <video ref={videoRef} className="w-full h-full object-cover transform scale-x-[-1]" autoPlay playsInline muted />
             </div>
